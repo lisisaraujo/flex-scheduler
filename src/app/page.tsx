@@ -1,103 +1,150 @@
-import Image from "next/image";
+import Link from "next/link";
+import { getCurrentUser } from "@/features/auth/server/session";
+import { listInvitationsForCompany, listMembersForCompany } from "@/features/auth/server/repository";
+import { CompanyAdminPanel } from "@/features/auth/ui/CompanyAdminPanel";
+import { CreateMonthForm } from "@/features/scheduler/ui/CreateMonthForm";
+import { isFirestoreConfigured } from "@/features/scheduler/server/db";
+import { listMonths } from "@/features/scheduler/server/repository";
 
-export default function Home() {
+export default async function HomePage() {
+  const user = await getCurrentUser();
+  const configured = isFirestoreConfigured();
+  const months = configured && user ? await listMonths(user.companyId).catch(() => []) : [];
+  const invitations =
+    configured && user?.role === "admin" ? await listInvitationsForCompany(user.companyId).catch(() => []) : [];
+  const members =
+    configured && user?.role === "admin" ? await listMembersForCompany(user.companyId).catch(() => []) : [];
+  const currentMonthId = new Date().toISOString().slice(0, 7);
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="mx-auto min-h-screen max-w-6xl px-6 py-14">
+      <section className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">Scheduler MVP</p>
+            <h1 className="max-w-xl text-5xl font-semibold tracking-tight text-zinc-950">
+              Restructured around month intake, admin scheduling, and a simpler path to the real product.
+            </h1>
+            <p className="max-w-xl text-lg text-zinc-600">
+              This version keeps the MVP honest: one month at a time, explicit shift-level availability, public day
+              visibility, admin controls, and a generated schedule table.
+            </p>
+            <p className="max-w-xl text-sm text-zinc-700">
+              {user
+                ? `Signed in as ${user.name} (${user.email}) in ${user.companyName}.`
+                : "No account session yet. Create a company first, then log into it."}
+            </p>
+          </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-zinc-950">Current MVP scope</h2>
+            <ul className="grid gap-2 text-sm text-zinc-700">
+              <li>Public month page for availability intake</li>
+              <li>Visible names already available on each shift</li>
+              <li>Per-shift cap managed by admin</li>
+              <li>Manual schedule generation with a simple rule set</li>
+              <li>Schedule table ready for later PDF/email work</li>
+            </ul>
+            <div className="pt-2">
+              <Link
+                href={`/m/${currentMonthId}?demo=1`}
+                className="inline-flex rounded-full bg-amber-400 px-4 py-2 text-sm font-medium text-zinc-950"
+              >
+                Open this month in demo mode
+              </Link>
+            </div>
+          </div>
+
+          {!configured ? (
+            <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">
+              Firestore is not configured yet. Use the demo month above to test the calendar UI, or add
+              `FIREBASE_SERVICE_ACCOUNT` to create real months.
+            </div>
+          ) : null}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {user?.role === "admin" ? (
+          <div className="grid gap-6">
+            <CreateMonthForm defaultOrgName={user.companyName} />
+            <CompanyAdminPanel invitations={invitations} members={members} currentUserId={user.userId} />
+          </div>
+        ) : user ? (
+          <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-zinc-950">Company member view</h2>
+            <p className="text-sm text-zinc-600">
+              You are signed in as a user. Published months for {user.companyName} will appear below once an admin creates them.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-zinc-950">Create a company first</h2>
+            <p className="text-sm text-zinc-600">
+              The app now uses company-scoped accounts. Register your company to create the first admin account.
+            </p>
+            <div className="flex gap-3">
+              <Link href="/register" className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white">
+                Create company
+              </Link>
+              <Link href="/login" className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900">
+                Log in
+              </Link>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="mt-12 space-y-4">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-zinc-950">Existing months</h2>
+            <p className="mt-1 text-sm text-zinc-600">Open the public intake or admin control view for any month.</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {months.length > 0 ? (
+            months.map((month) => (
+              <article key={month.monthId} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-zinc-950">{month.monthId}</h3>
+                    <p className="mt-1 text-sm text-zinc-600">{month.orgName}</p>
+                  </div>
+                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-zinc-700">
+                    {month.status}
+                  </span>
+                </div>
+
+                <div className="mt-4 text-sm text-zinc-600">
+                  <div>Deadline: {new Date(month.deadlineAt).toLocaleString()}</div>
+                  <div>Cap per shift: {month.intakeLimitPerShift}</div>
+                </div>
+
+                <div className="mt-5 flex gap-3">
+                  <Link
+                    href={`/m/${month.monthId}`}
+                    className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white"
+                  >
+                    Open month
+                  </Link>
+                  {user?.role === "admin" ? (
+                    <Link
+                      href={`/admin/${month.monthId}`}
+                      className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900"
+                    >
+                      Admin view
+                    </Link>
+                  ) : null}
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="rounded-3xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
+              No months yet. Create the first month using the form above.
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
   );
 }
