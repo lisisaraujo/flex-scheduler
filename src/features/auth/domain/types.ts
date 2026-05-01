@@ -1,5 +1,11 @@
 export type MembershipRole = "user" | "admin";
 
+export interface SchedulingProfile {
+  active: boolean;
+  maxShifts: number | null;
+  preferredCoworkerIds: string[];
+}
+
 export interface Company {
   companyId: string;
   name: string;
@@ -19,6 +25,7 @@ export interface Membership {
   companyId: string;
   role: MembershipRole;
   createdAt: number;
+  schedulingProfile: SchedulingProfile;
 }
 
 export interface SessionUser {
@@ -50,4 +57,5 @@ export interface CompanyMember {
   createdAt: number;
   name: string;
   email: string;
+  schedulingProfile: SchedulingProfile;
 }

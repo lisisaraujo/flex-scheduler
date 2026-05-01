@@ -17,6 +17,13 @@ const bodySchema = z.object({
 export async function POST(request: NextRequest, context: { params: Promise<{ monthId: string }> }) {
   try {
     const user = await requireCurrentUser();
+    if (user.role === "admin") {
+      return NextResponse.json(
+        { error: "Admins can view the calendar but cannot submit availability." },
+        { status: 403 },
+      );
+    }
+
     const { monthId } = await context.params;
     const parsed = bodySchema.parse(await request.json());
     const memberId = await updateAvailability({

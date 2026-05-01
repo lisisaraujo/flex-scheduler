@@ -1,3 +1,5 @@
+import { listMembersForCompany } from "@/features/auth/server/repository";
+import { buildSchedulerInput } from "@/features/scheduler/domain/scheduler-input";
 import { SessionUser } from "@/features/auth/domain/types";
 import { buildDayOverviews, selectableShifts } from "@/features/scheduler/domain/calendar";
 import { generateSchedule } from "@/features/scheduler/domain/assignment";
@@ -49,6 +51,7 @@ function sortStatuses(months: MonthDoc[]) {
     open: 1,
     closed: 2,
     scheduled: 3,
+    archived: 4,
   };
 
   return months.sort((left, right) => {
@@ -216,9 +219,57 @@ export async function updateMonthSettings(input: {
   );
 }
 
+async function deleteDocsInChunks(
+  refs: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>[],
+  chunkSize = 400,
+) {
+  for (let index = 0; index < refs.length; index += chunkSize) {
+    const batch = getDb().batch();
+    refs.slice(index, index + chunkSize).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+export async function deleteMonthForCompany(companyId: string, monthId: string) {
+  const { month, ref } = await readMonth(companyId, monthId);
+
+  if (!["draft", "archived"].includes(month.status)) {
+    throw new Error("Only draft or archived months can be deleted permanently");
+  }
+
+  const [availabilitySnap, assignmentSnap] = await Promise.all([
+    ref.collection("availabilities").get(),
+    ref.collection("assignments").get(),
+  ]);
+
+  await deleteDocsInChunks([
+    ...availabilitySnap.docs.map((doc) => doc.ref),
+    ...assignmentSnap.docs.map((doc) => doc.ref),
+  ]);
+
+  await ref.delete();
+}
+
 export async function generateMonthScheduleForCompany(companyId: string, monthId: string) {
   const { month, availabilities, ref } = await readMonth(companyId, monthId);
-  const assignments = generateSchedule(month.monthId, month.intakeLimitPerShift, availabilities);
+
+  if (!["open", "closed", "scheduled"].includes(month.status)) {
+    throw new Error("Only open, closed, or scheduled months can generate a schedule");
+  }
+
+  const companyMembers = await listMembersForCompany(companyId);
+  const schedulerInput = buildSchedulerInput({
+    monthId: month.monthId,
+    intakeLimitPerShift: month.intakeLimitPerShift,
+    availabilities,
+    companyMembers,
+  });
+  const assignments = generateSchedule({
+    monthId: month.monthId,
+    intakeLimitPerShift: month.intakeLimitPerShift,
+    availabilities,
+    schedulerInput,
+  });
   const batch = getDb().batch();
   const assignmentsRef = ref.collection("assignments");
   const existingAssignments = await assignmentsRef.get();

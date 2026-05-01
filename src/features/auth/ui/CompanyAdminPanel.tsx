@@ -9,6 +9,11 @@ function invitationState(invitation: Invitation) {
   return invitation.status;
 }
 
+interface SchedulingFormState {
+  active: boolean;
+  maxShifts: string;
+}
+
 export function CompanyAdminPanel({
   invitations,
   members,
@@ -24,6 +29,17 @@ export function CompanyAdminPanel({
   const [role, setRole] = useState<"user" | "admin">("user");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [memberSettings, setMemberSettings] = useState<Record<string, SchedulingFormState>>(() =>
+    Object.fromEntries(
+      members.map((member) => [
+        member.userId,
+        {
+          active: member.schedulingProfile.active,
+          maxShifts: member.schedulingProfile.maxShifts?.toString() ?? "",
+        },
+      ]),
+    ),
+  );
 
   const activeInvitations = useMemo(
     () =>
@@ -33,6 +49,19 @@ export function CompanyAdminPanel({
       }),
     [invitations],
   );
+
+  function updateMemberSettings(userId: string, next: Partial<SchedulingFormState>) {
+    setMemberSettings((current) => ({
+      ...current,
+      [userId]: {
+        ...(current[userId] ?? {
+          active: true,
+          maxShifts: "",
+        }),
+        ...next,
+      },
+    }));
+  }
 
   async function createInvite() {
     setError(null);
@@ -99,6 +128,41 @@ export function CompanyAdminPanel({
     }
 
     setSuccess("Member removed.");
+    startTransition(() => router.refresh());
+  }
+
+  async function saveScheduling(userId: string) {
+    setError(null);
+    setSuccess(null);
+
+    const settings = memberSettings[userId];
+    if (!settings) {
+      setError("Missing scheduling settings for this member.");
+      return;
+    }
+
+    const normalizedMaxShifts = settings.maxShifts.trim() === "" ? null : Number(settings.maxShifts);
+    if (normalizedMaxShifts !== null && (!Number.isInteger(normalizedMaxShifts) || normalizedMaxShifts < 0)) {
+      setError("Max shifts must be a whole number or left empty.");
+      return;
+    }
+
+    const response = await fetch(`/api/members/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        active: settings.active,
+        maxShifts: normalizedMaxShifts,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setError(payload?.error ?? "Failed to update member scheduling");
+      return;
+    }
+
+    setSuccess("Member scheduling settings updated.");
     startTransition(() => router.refresh());
   }
 
@@ -193,14 +257,16 @@ export function CompanyAdminPanel({
       <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div>
           <h2 className="text-xl font-semibold text-zinc-950">Company members</h2>
-          <p className="mt-1 text-sm text-zinc-600">Remove members when they should no longer access your company schedules.</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            Manage scheduler participation, max shifts, and member access in one place.
+          </p>
         </div>
 
         <div className="space-y-3">
           {members.map((member) => (
             <div
               key={member.membershipId}
-              className="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm md:grid-cols-[1fr_auto]"
+              className="grid gap-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm"
             >
               <div>
                 <div className="font-medium text-zinc-900">{member.name}</div>
@@ -208,20 +274,53 @@ export function CompanyAdminPanel({
                   {member.email} · {member.role}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {member.userId === currentUserId ? (
-                  <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
-                    Current admin
-                  </span>
-                ) : (
+
+              <div className="grid gap-4 md:grid-cols-[140px_160px_auto] md:items-start">
+                <label className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={memberSettings[member.userId]?.active ?? true}
+                    onChange={(event) => updateMemberSettings(member.userId, { active: event.target.checked })}
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  <span>Active in scheduler</span>
+                </label>
+
+                <label className="grid gap-1 text-sm text-zinc-700 md:max-w-[160px]">
+                  <span>Max shifts</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={31}
+                    value={memberSettings[member.userId]?.maxShifts ?? ""}
+                    onChange={(event) => updateMemberSettings(member.userId, { maxShifts: event.target.value })}
+                    placeholder="No limit"
+                    className="rounded-2xl border border-zinc-300 bg-white px-4 py-3 outline-none focus:border-zinc-900"
+                  />
+                </label>
+
+                <div className="flex flex-wrap gap-2 md:justify-end">
                   <button
                     type="button"
-                    onClick={() => removeMember(member.userId)}
-                    className="rounded-full bg-rose-100 px-4 py-2 text-sm font-medium text-rose-800"
+                    onClick={() => saveScheduling(member.userId)}
+                    className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white"
                   >
-                    Remove member
+                    Save settings
                   </button>
-                )}
+                  {member.userId === currentUserId ? (
+                    <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
+                      Current admin
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => removeMember(member.userId)}
+                      className="rounded-full bg-rose-100 px-4 py-2 text-sm font-medium text-rose-800"
+                    >
+                      Remove member
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

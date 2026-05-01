@@ -1,5 +1,5 @@
 export type ShiftType = "night" | "day";
-export type MonthStatus = "draft" | "open" | "closed" | "scheduled";
+export type MonthStatus = "draft" | "open" | "closed" | "scheduled" | "archived";
 
 export interface MonthDoc {
   companyId: string;
@@ -56,4 +56,28 @@ export interface MonthSnapshot {
   availabilities: MemberAvailability[];
   assignments: DaySchedule[];
   demoMode?: boolean;
+}
+
+export interface SchedulerMember {
+  memberId: string;
+  name: string;
+  email?: string | null;
+  active: boolean;
+  maxShifts: number | null;
+  preferredCoworkerIds: string[];
+  availabilityDates: string[];
+}
+
+export interface SchedulerShiftRequest {
+  shiftId: string;
+  date: string;
+  shiftType: ShiftType;
+  capacity: number;
+  candidateMemberIds: string[];
+}
+
+export interface SchedulerInput {
+  monthId: string;
+  members: SchedulerMember[];
+  shiftRequests: SchedulerShiftRequest[];
 }

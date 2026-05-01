@@ -6,6 +6,7 @@ import {
   Invitation,
   Membership,
   MembershipRole,
+  SchedulingProfile,
   SessionUser,
 } from "@/features/auth/domain/types";
 import { getAuth, getDb } from "@/features/scheduler/server/db";
@@ -67,6 +68,49 @@ function toSessionUser(user: AuthUser, membership: Membership, company: Company)
     companyName: company.name,
     role: membership.role as MembershipRole,
   } satisfies SessionUser;
+}
+
+function defaultSchedulingProfile(): SchedulingProfile {
+  return {
+    active: true,
+    maxShifts: null,
+    preferredCoworkerIds: [],
+  };
+}
+
+function normalizeSchedulingProfile(profile?: Partial<SchedulingProfile> | null): SchedulingProfile {
+  return {
+    active: profile?.active ?? true,
+    maxShifts: typeof profile?.maxShifts === "number" ? profile.maxShifts : null,
+    preferredCoworkerIds: Array.isArray(profile?.preferredCoworkerIds)
+      ? profile.preferredCoworkerIds.filter((value): value is string => typeof value === "string")
+      : [],
+  };
+}
+
+async function listCompanyMembershipUserIds(companyId: string, userIds: string[]) {
+  const validUserIds = new Set<string>();
+
+  for (let index = 0; index < userIds.length; index += 10) {
+    const chunk = userIds.slice(index, index + 10);
+    const snapshot = await membershipsCollection()
+      .where("companyId", "==", companyId)
+      .where("userId", "in", chunk)
+      .get();
+
+    snapshot.docs.forEach((doc) => {
+      validUserIds.add((doc.data() as Membership).userId);
+    });
+  }
+
+  return validUserIds;
+}
+
+function normalizeMembership(membership: Membership): Membership {
+  return {
+    ...membership,
+    schedulingProfile: normalizeSchedulingProfile(membership.schedulingProfile),
+  };
 }
 
 async function createFirebaseAuthUser(input: {
@@ -143,7 +187,7 @@ async function findMembershipForUser(userId: string) {
     throw new Error("This account is not attached to a company yet");
   }
 
-  return snapshot.docs[0].data() as Membership;
+  return normalizeMembership(snapshot.docs[0].data() as Membership);
 }
 
 export async function registerCompanyAdmin(input: {
@@ -184,6 +228,7 @@ export async function registerCompanyAdmin(input: {
     companyId,
     role: "admin",
     createdAt: now,
+    schedulingProfile: defaultSchedulingProfile(),
   };
 
   await createFirebaseAuthUser({ userId, email, password, name });
@@ -237,18 +282,20 @@ export async function listMembersForCompany(companyId: string) {
   const members = await Promise.all(
     membershipsSnapshot.docs.map(async (doc) => {
       const membership = doc.data() as Membership;
+      const normalizedMembership = normalizeMembership(membership);
       const userSnapshot = await usersCollection().doc(membership.userId).get();
       if (!userSnapshot.exists) return null;
       const user = userSnapshot.data() as UserRecord;
 
       return {
-        membershipId: membership.membershipId,
-        userId: membership.userId,
-        companyId: membership.companyId,
-        role: membership.role,
-        createdAt: membership.createdAt,
+        membershipId: normalizedMembership.membershipId,
+        userId: normalizedMembership.userId,
+        companyId: normalizedMembership.companyId,
+        role: normalizedMembership.role,
+        createdAt: normalizedMembership.createdAt,
         name: user.name,
         email: user.email,
+        schedulingProfile: normalizedMembership.schedulingProfile,
       } satisfies CompanyMember;
     }),
   );
@@ -356,6 +403,7 @@ export async function acceptInvitation(input: {
     companyId: invitation.companyId,
     role: invitation.role,
     createdAt: now,
+    schedulingProfile: defaultSchedulingProfile(),
   };
 
   await createFirebaseAuthUser({
@@ -475,4 +523,72 @@ export async function removeCompanyMember(input: {
   if (remainingMemberships.size <= 1) {
     await getAuth().deleteUser(input.targetUserId).catch(() => undefined);
   }
+}
+
+export async function updateCompanyMemberScheduling(input: {
+  companyId: string;
+  targetUserId: string;
+  active: boolean;
+  maxShifts: number | null;
+}) {
+  const membershipId = `${input.companyId}:${input.targetUserId}`;
+  const membershipRef = membershipsCollection().doc(membershipId);
+  const membershipSnapshot = await membershipRef.get();
+  if (!membershipSnapshot.exists) {
+    throw new Error("Member not found");
+  }
+
+  if (input.maxShifts !== null && (input.maxShifts < 0 || input.maxShifts > 31)) {
+    throw new Error("maxShifts must be between 0 and 31");
+  }
+
+  await membershipRef.set(
+    {
+      schedulingProfile: normalizeSchedulingProfile({
+        ...normalizeMembership(membershipSnapshot.data() as Membership).schedulingProfile,
+        active: input.active,
+        maxShifts: input.maxShifts,
+      }),
+    },
+    { merge: true },
+  );
+}
+
+export async function updateMemberPreferredCoworkers(input: {
+  companyId: string;
+  targetUserId: string;
+  preferredCoworkerIds: string[];
+}) {
+  const membershipId = `${input.companyId}:${input.targetUserId}`;
+  const membershipRef = membershipsCollection().doc(membershipId);
+  const membershipSnapshot = await membershipRef.get();
+  if (!membershipSnapshot.exists) {
+    throw new Error("Member not found");
+  }
+
+  const candidateIds = Array.from(
+    new Set(
+      input.preferredCoworkerIds
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0 && value !== input.targetUserId),
+    ),
+  );
+
+  if (candidateIds.length > 0) {
+    const validUserIds = await listCompanyMembershipUserIds(input.companyId, candidateIds);
+    const invalidIds = candidateIds.filter((userId) => !validUserIds.has(userId));
+    if (invalidIds.length > 0) {
+      throw new Error("One or more preferred coworkers are invalid for this company");
+    }
+  }
+
+  await membershipRef.set(
+    {
+      schedulingProfile: normalizeSchedulingProfile({
+        ...normalizeMembership(membershipSnapshot.data() as Membership).schedulingProfile,
+        preferredCoworkerIds: candidateIds,
+      }),
+    },
+    { merge: true },
+  );
 }

@@ -18,7 +18,8 @@ export default async function AdminMonthPage({ params }: { params: Promise<{ mon
   try {
     const snapshot = await getMonthSnapshotForCompany(currentUser.companyId, monthId);
     return (
-      <main className="mx-auto min-h-screen max-w-7xl px-6 py-12">
+      <main className="relative mx-auto min-h-screen max-w-7xl px-6 py-12">
+        <div className="pointer-events-none absolute inset-x-6 top-4 h-56 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.72),rgba(255,255,255,0))]" />
         <AdminMonthView snapshot={snapshot} />
       </main>
     );

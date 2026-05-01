@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/features/auth/server/session";
 import { listInvitationsForCompany, listMembersForCompany } from "@/features/auth/server/repository";
 import { CompanyAdminPanel } from "@/features/auth/ui/CompanyAdminPanel";
+import { UserCoworkerPreferencesPanel } from "@/features/auth/ui/UserCoworkerPreferencesPanel";
 import { CreateMonthForm } from "@/features/scheduler/ui/CreateMonthForm";
 import { isFirestoreConfigured } from "@/features/scheduler/server/db";
 import { listMonths } from "@/features/scheduler/server/repository";
@@ -9,11 +10,15 @@ import { listMonths } from "@/features/scheduler/server/repository";
 export default async function HomePage() {
   const user = await getCurrentUser();
   const configured = isFirestoreConfigured();
-  const months = configured && user ? await listMonths(user.companyId).catch(() => []) : [];
+  const allMonths = configured && user ? await listMonths(user.companyId).catch(() => []) : [];
+  const months =
+    user?.role === "admin"
+      ? allMonths
+      : allMonths.filter((month) => month.status !== "draft" && month.status !== "archived");
   const invitations =
     configured && user?.role === "admin" ? await listInvitationsForCompany(user.companyId).catch(() => []) : [];
-  const members =
-    configured && user?.role === "admin" ? await listMembersForCompany(user.companyId).catch(() => []) : [];
+  const members = configured && user ? await listMembersForCompany(user.companyId).catch(() => []) : [];
+  const currentMember = user ? members.find((member) => member.userId === user.userId) ?? null : null;
   const currentMonthId = new Date().toISOString().slice(0, 7);
 
   return (
@@ -69,11 +74,19 @@ export default async function HomePage() {
             <CompanyAdminPanel invitations={invitations} members={members} currentUserId={user.userId} />
           </div>
         ) : user ? (
-          <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-zinc-950">Company member view</h2>
-            <p className="text-sm text-zinc-600">
-              You are signed in as a user. Published months for {user.companyName} will appear below once an admin creates them.
-            </p>
+          <div className="grid gap-4">
+            <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-semibold text-zinc-950">Company member view</h2>
+              <p className="text-sm text-zinc-600">
+                You are signed in as a user. Published months for {user.companyName} will appear below once an admin creates them.
+              </p>
+            </div>
+            <UserCoworkerPreferencesPanel
+              currentUserId={user.userId}
+              currentPreferredCoworkerIds={currentMember?.schedulingProfile.preferredCoworkerIds ?? []}
+              members={members}
+              showMembershipWarning={!currentMember}
+            />
           </div>
         ) : (
           <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">

@@ -21,6 +21,10 @@ export default async function PublicMonthPage({
     }
 
     const snapshot = await getMonthSnapshotForCompany(currentUser.companyId, monthId);
+    if (currentUser.role !== "admin" && (snapshot.month.status === "draft" || snapshot.month.status === "archived")) {
+      notFound();
+    }
+
     return (
       <main className="mx-auto min-h-screen max-w-7xl px-6 py-12">
         <PublicMonthView snapshot={snapshot} currentUser={currentUser} />

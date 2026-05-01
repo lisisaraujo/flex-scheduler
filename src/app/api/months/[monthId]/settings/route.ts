@@ -6,7 +6,7 @@ import { updateMonthSettings } from "@/features/scheduler/server/repository";
 const bodySchema = z.object({
   deadlineAt: z.number().int().positive(),
   intakeLimitPerShift: z.number().int().min(1).max(20),
-  status: z.enum(["draft", "open", "closed", "scheduled"]),
+  status: z.enum(["draft", "open", "closed", "scheduled", "archived"]),
 });
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ monthId: string }> }) {
