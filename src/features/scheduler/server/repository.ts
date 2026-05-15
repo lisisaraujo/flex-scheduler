@@ -10,6 +10,7 @@ import {
   MonthDoc,
   MonthSnapshot,
   MonthStatus,
+  ShiftType,
 } from "@/features/scheduler/domain/types";
 import { getDb } from "./db";
 
@@ -287,4 +288,136 @@ export async function generateMonthScheduleForCompany(companyId: string, monthId
 
   await batch.commit();
   return assignments;
+}
+
+function previousDate(date: string) {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() - 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function validateEditedAssignments(input: {
+  assignments: Array<{
+    date: string;
+    weekend: boolean;
+    night: [string | null, string | null];
+    day: [string | null, string | null];
+  }>;
+  availabilities: MemberAvailability[];
+  companyMembers: Awaited<ReturnType<typeof listMembersForCompany>>;
+}) {
+  const memberById = new Map(input.companyMembers.map((member) => [member.userId, member]));
+  const availabilityByShift = new Map<string, Set<string>>();
+
+  for (const availability of input.availabilities) {
+    for (const entry of availability.entries) {
+      const key = `${entry.date}:${entry.shiftType}`;
+      const existing = availabilityByShift.get(key) ?? new Set<string>();
+      existing.add(availability.memberId);
+      availabilityByShift.set(key, existing);
+    }
+  }
+
+  const assignmentsByMember = new Map<string, Set<string>>();
+  const assignmentCountByMember = new Map<string, number>();
+
+  const validateSlot = (memberId: string | null, date: string, shiftType: ShiftType) => {
+    if (!memberId) return;
+
+    const member = memberById.get(memberId);
+    if (!member) {
+      throw new Error(`Unknown member selected for ${date} ${shiftType}`);
+    }
+    if (!member.schedulingProfile.active) {
+      throw new Error(`${member.name} is inactive and cannot be assigned`);
+    }
+
+    const availableMembers = availabilityByShift.get(`${date}:${shiftType}`) ?? new Set<string>();
+    if (!availableMembers.has(memberId)) {
+      throw new Error(`${member.name} did not submit availability for ${date} ${shiftType}`);
+    }
+
+    const existing = assignmentsByMember.get(memberId) ?? new Set<string>();
+    if (existing.has(`${date}:night`) || existing.has(`${date}:day`)) {
+      throw new Error(`${member.name} cannot be assigned twice on ${date}`);
+    }
+    if (shiftType === "day" && existing.has(`${previousDate(date)}:night`)) {
+      throw new Error(`${member.name} cannot work a day shift on ${date} after a night shift the previous day`);
+    }
+
+    const nextCount = (assignmentCountByMember.get(memberId) ?? 0) + 1;
+    if (member.schedulingProfile.maxShifts !== null && nextCount > member.schedulingProfile.maxShifts) {
+      throw new Error(`${member.name} exceeds their max shifts`);
+    }
+
+    existing.add(`${date}:${shiftType}`);
+    assignmentsByMember.set(memberId, existing);
+    assignmentCountByMember.set(memberId, nextCount);
+  };
+
+  for (const assignment of input.assignments.sort((left, right) => left.date.localeCompare(right.date))) {
+    validateSlot(assignment.night[0], assignment.date, "night");
+    validateSlot(assignment.night[1], assignment.date, "night");
+    if (assignment.weekend) {
+      validateSlot(assignment.day[0], assignment.date, "day");
+      validateSlot(assignment.day[1], assignment.date, "day");
+    }
+  }
+}
+
+export async function updateMonthAssignmentsForCompany(input: {
+  companyId: string;
+  monthId: string;
+  assignments: Array<{
+    date: string;
+    weekend: boolean;
+    night: [string | null, string | null];
+    day: [string | null, string | null];
+  }>;
+}) {
+  const { month, availabilities, ref } = await readMonth(input.companyId, input.monthId);
+  const companyMembers = await listMembersForCompany(input.companyId);
+  const dayByDate = new Map(
+    buildDayOverviews(month.monthId, month.intakeLimitPerShift, availabilities).map((day) => [day.date, day]),
+  );
+
+  validateEditedAssignments({
+    assignments: input.assignments,
+    availabilities,
+    companyMembers,
+  });
+
+  const nameByMemberId = new Map(companyMembers.map((member) => [member.userId, member.name]));
+  const normalizedAssignments: DaySchedule[] = input.assignments
+    .map((assignment) => ({
+      date: assignment.date,
+      weekdayLabel: dayByDate.get(assignment.date)?.weekdayLabel ?? assignment.date,
+      weekend: assignment.weekend,
+      night: [
+        assignment.night[0] ? nameByMemberId.get(assignment.night[0]) ?? null : null,
+        assignment.night[1] ? nameByMemberId.get(assignment.night[1]) ?? null : null,
+      ] as [string | null, string | null],
+      day: [
+        assignment.day[0] ? nameByMemberId.get(assignment.day[0]) ?? null : null,
+        assignment.day[1] ? nameByMemberId.get(assignment.day[1]) ?? null : null,
+      ] as [string | null, string | null],
+    }))
+    .sort((left, right) => left.date.localeCompare(right.date));
+
+  const batch = getDb().batch();
+  const assignmentsRef = ref.collection("assignments");
+  const existingAssignments = await assignmentsRef.get();
+  existingAssignments.forEach((doc) => batch.delete(doc.ref));
+  normalizedAssignments.forEach((assignment) => batch.set(assignmentsRef.doc(assignment.date), assignment));
+  batch.set(
+    ref,
+    {
+      status: "scheduled",
+      updatedAt: Date.now(),
+    },
+    { merge: true },
+  );
+  await batch.commit();
+
+  return normalizedAssignments;
 }

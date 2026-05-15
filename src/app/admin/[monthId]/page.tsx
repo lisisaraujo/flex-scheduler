@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { listMembersForCompany } from "@/features/auth/server/repository";
 import { getCurrentUser } from "@/features/auth/server/session";
 import { getMonthSnapshotForCompany } from "@/features/scheduler/server/repository";
 import { AdminMonthView } from "@/features/scheduler/ui/AdminMonthView";
@@ -17,10 +18,11 @@ export default async function AdminMonthPage({ params }: { params: Promise<{ mon
 
   try {
     const snapshot = await getMonthSnapshotForCompany(currentUser.companyId, monthId);
+    const members = await listMembersForCompany(currentUser.companyId).catch(() => []);
     return (
       <main className="relative mx-auto min-h-screen max-w-7xl px-6 py-12">
         <div className="pointer-events-none absolute inset-x-6 top-4 h-56 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.72),rgba(255,255,255,0))]" />
-        <AdminMonthView snapshot={snapshot} />
+        <AdminMonthView snapshot={snapshot} members={members} />
       </main>
     );
   } catch {
