@@ -1,8 +1,10 @@
+import crypto from "crypto";
 import { listMembersForCompany } from "@/features/auth/server/repository";
 import { buildSchedulerInput } from "@/features/scheduler/domain/scheduler-input";
 import { SessionUser } from "@/features/auth/domain/types";
 import { buildDayOverviews, selectableShifts } from "@/features/scheduler/domain/calendar";
 import { generateSchedule } from "@/features/scheduler/domain/assignment";
+import { applySwap, isSameSlot, validateSwapProposal } from "@/features/scheduler/domain/swap";
 import {
   AvailabilityEntry,
   DaySchedule,
@@ -10,12 +12,18 @@ import {
   MonthDoc,
   MonthSnapshot,
   MonthStatus,
+  ShiftSlotRef,
+  ShiftSwapRequest,
   ShiftType,
 } from "@/features/scheduler/domain/types";
 import { getDb } from "./db";
 
 function monthCollection(companyId: string, monthId: string) {
   return getDb().collection("companies").doc(companyId).collection("calendars").doc(monthId);
+}
+
+function swapRequestsCollection(companyId: string, monthId: string) {
+  return monthCollection(companyId, monthId).collection("swapRequests");
 }
 
 function dedupeEntries(entries: AvailabilityEntry[]) {
@@ -105,6 +113,14 @@ export async function createMonth(input: {
   return doc;
 }
 
+function normalizeAssignment(assignment: DaySchedule): DaySchedule {
+  return {
+    ...assignment,
+    nightIds: assignment.nightIds ?? [null, null],
+    dayIds: assignment.dayIds ?? [null, null],
+  };
+}
+
 async function readMonth(companyId: string, monthId: string) {
   const ref = monthCollection(companyId, monthId);
   const monthSnap = await ref.get();
@@ -123,7 +139,7 @@ async function readMonth(companyId: string, monthId: string) {
     ...(doc.data() as Omit<MemberAvailability, "memberId">),
   }));
   const assignments = assignmentSnap.docs
-    .map((doc) => doc.data() as DaySchedule)
+    .map((doc) => normalizeAssignment(doc.data() as DaySchedule))
     .sort((left, right) => left.date.localeCompare(right.date));
 
   return { month, availabilities, assignments, ref };
@@ -401,6 +417,8 @@ export async function updateMonthAssignmentsForCompany(input: {
         assignment.day[0] ? nameByMemberId.get(assignment.day[0]) ?? null : null,
         assignment.day[1] ? nameByMemberId.get(assignment.day[1]) ?? null : null,
       ] as [string | null, string | null],
+      nightIds: [assignment.night[0] ?? null, assignment.night[1] ?? null] as [string | null, string | null],
+      dayIds: [assignment.day[0] ?? null, assignment.day[1] ?? null] as [string | null, string | null],
     }))
     .sort((left, right) => left.date.localeCompare(right.date));
 
@@ -420,4 +438,185 @@ export async function updateMonthAssignmentsForCompany(input: {
   await batch.commit();
 
   return normalizedAssignments;
+}
+
+export async function listSwapRequestsForUser(input: { companyId: string; monthId: string; userId: string }) {
+  const collection = swapRequestsCollection(input.companyId, input.monthId);
+  const [asRequester, asRequestee] = await Promise.all([
+    collection.where("requesterId", "==", input.userId).get(),
+    collection.where("requesteeId", "==", input.userId).get(),
+  ]);
+
+  const byId = new Map<string, ShiftSwapRequest>();
+  for (const doc of [...asRequester.docs, ...asRequestee.docs]) {
+    const swap = doc.data() as ShiftSwapRequest;
+    byId.set(swap.swapId, swap);
+  }
+
+  return Array.from(byId.values()).sort((left, right) => right.createdAt - left.createdAt);
+}
+
+export async function createSwapRequest(input: {
+  companyId: string;
+  monthId: string;
+  currentUser: SessionUser;
+  requesteeId: string;
+  requesterShift: ShiftSlotRef;
+  requesteeShift: ShiftSlotRef;
+}): Promise<ShiftSwapRequest> {
+  const { month, assignments, ref } = await readMonth(input.companyId, input.monthId);
+
+  if (month.status !== "scheduled") {
+    throw new Error("Swaps can only be requested once the schedule has been published");
+  }
+
+  const companyMembers = await listMembersForCompany(input.companyId);
+  const requester = companyMembers.find((member) => member.userId === input.currentUser.userId);
+  const requestee = companyMembers.find((member) => member.userId === input.requesteeId);
+
+  if (!requester || !requester.schedulingProfile.active) {
+    throw new Error("You must be an active member to request a swap");
+  }
+  if (!requestee || !requestee.schedulingProfile.active) {
+    throw new Error("The selected teammate is not an active member");
+  }
+
+  validateSwapProposal({
+    assignments,
+    requesterId: input.currentUser.userId,
+    requesteeId: input.requesteeId,
+    requesterShift: input.requesterShift,
+    requesteeShift: input.requesteeShift,
+  });
+
+  const collection = swapRequestsCollection(input.companyId, input.monthId);
+  const pendingWithRequestee = await collection
+    .where("requesterId", "==", input.currentUser.userId)
+    .where("requesteeId", "==", input.requesteeId)
+    .where("status", "==", "pending")
+    .get();
+
+  const duplicate = pendingWithRequestee.docs.find((doc) => {
+    const swap = doc.data() as ShiftSwapRequest;
+    return (
+      isSameSlot(swap.requesterShift, input.requesterShift) && isSameSlot(swap.requesteeShift, input.requesteeShift)
+    );
+  });
+  if (duplicate) {
+    throw new Error("You already have a pending swap request for these shifts with this teammate");
+  }
+
+  const now = Date.now();
+  const swap: ShiftSwapRequest = {
+    swapId: crypto.randomBytes(16).toString("hex"),
+    companyId: input.companyId,
+    monthId: input.monthId,
+    status: "pending",
+    requesterId: input.currentUser.userId,
+    requesterName: requester.name,
+    requesteeId: input.requesteeId,
+    requesteeName: requestee.name,
+    requesterShift: input.requesterShift,
+    requesteeShift: input.requesteeShift,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await ref.collection("swapRequests").doc(swap.swapId).set(swap);
+  return swap;
+}
+
+export async function cancelSwapRequest(input: {
+  companyId: string;
+  monthId: string;
+  swapId: string;
+  currentUser: SessionUser;
+}): Promise<ShiftSwapRequest> {
+  const swapRef = swapRequestsCollection(input.companyId, input.monthId).doc(input.swapId);
+  const snapshot = await swapRef.get();
+  if (!snapshot.exists) {
+    throw new Error("Swap request not found");
+  }
+
+  const swap = snapshot.data() as ShiftSwapRequest;
+  if (swap.requesterId !== input.currentUser.userId) {
+    throw new Error("Forbidden");
+  }
+  if (swap.status !== "pending") {
+    throw new Error("This swap request is no longer pending");
+  }
+
+  const updated: ShiftSwapRequest = { ...swap, status: "cancelled", updatedAt: Date.now() };
+  await swapRef.set(updated, { merge: true });
+  return updated;
+}
+
+export async function respondToSwapRequest(input: {
+  companyId: string;
+  monthId: string;
+  swapId: string;
+  currentUser: SessionUser;
+  accept: boolean;
+}): Promise<ShiftSwapRequest> {
+  const monthRef = monthCollection(input.companyId, input.monthId);
+  const swapRef = swapRequestsCollection(input.companyId, input.monthId).doc(input.swapId);
+
+  return getDb().runTransaction(async (transaction) => {
+    const [monthSnap, swapSnap] = await Promise.all([transaction.get(monthRef), transaction.get(swapRef)]);
+
+    if (!monthSnap.exists) {
+      throw new Error(`Month ${input.monthId} not found`);
+    }
+    if (!swapSnap.exists) {
+      throw new Error("Swap request not found");
+    }
+
+    const swap = swapSnap.data() as ShiftSwapRequest;
+    if (swap.requesteeId !== input.currentUser.userId) {
+      throw new Error("Forbidden");
+    }
+    if (swap.status !== "pending") {
+      throw new Error("This swap request is no longer pending");
+    }
+
+    const now = Date.now();
+
+    if (!input.accept) {
+      const declined: ShiftSwapRequest = { ...swap, status: "declined", updatedAt: now };
+      transaction.set(swapRef, declined, { merge: true });
+      return declined;
+    }
+
+    const month = monthSnap.data() as MonthDoc;
+    if (month.status !== "scheduled") {
+      throw new Error("This month no longer has a published schedule");
+    }
+
+    const assignmentsRef = monthRef.collection("assignments");
+    const assignmentsSnap = await transaction.get(assignmentsRef);
+    const assignments = assignmentsSnap.docs
+      .map((doc) => normalizeAssignment(doc.data() as DaySchedule))
+      .sort((left, right) => left.date.localeCompare(right.date));
+
+    validateSwapProposal({
+      assignments,
+      requesterId: swap.requesterId,
+      requesteeId: swap.requesteeId,
+      requesterShift: swap.requesterShift,
+      requesteeShift: swap.requesteeShift,
+      now,
+    });
+
+    const swappedAssignments = applySwap(assignments, swap.requesterShift, swap.requesteeShift);
+    const touchedDates = new Set([swap.requesterShift.date, swap.requesteeShift.date]);
+    for (const row of swappedAssignments) {
+      if (touchedDates.has(row.date)) {
+        transaction.set(assignmentsRef.doc(row.date), row);
+      }
+    }
+
+    const accepted: ShiftSwapRequest = { ...swap, status: "accepted", updatedAt: now };
+    transaction.set(swapRef, accepted, { merge: true });
+    return accepted;
+  });
 }

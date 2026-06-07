@@ -48,6 +48,8 @@ export interface DaySchedule {
   weekend: boolean;
   night: [string | null, string | null];
   day: [string | null, string | null];
+  nightIds: [string | null, string | null];
+  dayIds: [string | null, string | null];
 }
 
 export interface MonthSnapshot {
@@ -80,4 +82,27 @@ export interface SchedulerInput {
   monthId: string;
   members: SchedulerMember[];
   shiftRequests: SchedulerShiftRequest[];
+}
+
+export type SwapRequestStatus = "pending" | "accepted" | "declined" | "cancelled";
+
+export interface ShiftSlotRef {
+  date: string;
+  shiftType: ShiftType;
+  slot: 0 | 1;
+}
+
+export interface ShiftSwapRequest {
+  swapId: string;
+  companyId: string;
+  monthId: string;
+  status: SwapRequestStatus;
+  requesterId: string;
+  requesterName: string;
+  requesteeId: string;
+  requesteeName: string;
+  requesterShift: ShiftSlotRef;
+  requesteeShift: ShiftSlotRef;
+  createdAt: number;
+  updatedAt: number;
 }
