@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/features/auth/server/session";
 import { buildDemoMonthSnapshot } from "@/features/scheduler/server/demo";
 import { getMonthSnapshotForCompany } from "@/features/scheduler/server/repository";
+import { MemberScheduleView } from "@/features/scheduler/ui/MemberScheduleView";
 import { PublicMonthView } from "@/features/scheduler/ui/PublicMonthView";
 
 export default async function PublicMonthPage({
@@ -25,9 +26,15 @@ export default async function PublicMonthPage({
       notFound();
     }
 
+    const showMemberScheduleView = currentUser.role !== "admin" && snapshot.month.status === "scheduled";
+
     return (
       <main className="mx-auto min-h-screen max-w-7xl px-6 py-12">
-        <PublicMonthView snapshot={snapshot} currentUser={currentUser} />
+        {showMemberScheduleView ? (
+          <MemberScheduleView snapshot={snapshot} currentUser={currentUser} />
+        ) : (
+          <PublicMonthView snapshot={snapshot} currentUser={currentUser} />
+        )}
       </main>
     );
   } catch {

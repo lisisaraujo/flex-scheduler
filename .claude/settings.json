@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Read(//usr/local/**)",
+      "Read(//opt/homebrew/**)",
+      "Read(//opt/homebrew/Cellar/**)",
+      "Read(//usr/local/Cellar/**)",
+      "Bash(brew list *)",
+      "Bash(command -v brew)",
+      "Bash(brew --version)",
+      "Bash(command -v asdf)",
+      "Bash(command -v volta)",
+      "Bash(command -v fnm)",
+      "Bash(node -e \"const util = require\\('node:util'\\); console.log\\(typeof util.styleText\\)\")",
+      "Bash(python3 -)",
+      "Bash(NODE_OPTIONS=\"--import=/tmp/util-polyfill-loader.mjs\" npx vitest run)",
+      "Bash(NODE_OPTIONS=\"--experimental-loader=/tmp/util-polyfill-loader.mjs\" npx vitest run)",
+      "Bash(echo \"exit=$?\")"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
+    ]
+  }
+}

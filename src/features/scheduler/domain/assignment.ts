@@ -187,6 +187,10 @@ function materializeAssignedNames(
   ];
 }
 
+function materializeAssignedIds(assignedMemberIds: [string | null, string | null]): [string | null, string | null] {
+  return [assignedMemberIds[0] ?? null, assignedMemberIds[1] ?? null];
+}
+
 function chooseBestPair(candidates: RankedCandidate[], state: SchedulerState) {
   let bestPair: CandidatePair | null = null;
 
@@ -430,21 +434,17 @@ function assignInitialSchedule(
 
 function buildScheduleRows(days: DayOverview[], state: SchedulerState): DaySchedule[] {
   return days.map((day) => {
-    const nightAssigned = materializeAssignedNames(
-      state,
-      state.assignmentsByShift.get(`${day.date}:night`) ?? emptyAssignedSlots(),
-    );
-    const dayAssigned = materializeAssignedNames(
-      state,
-      state.assignmentsByShift.get(`${day.date}:day`) ?? emptyAssignedSlots(),
-    );
+    const nightAssignedIds = state.assignmentsByShift.get(`${day.date}:night`) ?? emptyAssignedSlots();
+    const dayAssignedIds = state.assignmentsByShift.get(`${day.date}:day`) ?? emptyAssignedSlots();
 
     return {
       date: day.date,
       weekdayLabel: day.weekdayLabel,
       weekend: day.weekend,
-      night: nightAssigned,
-      day: dayAssigned,
+      night: materializeAssignedNames(state, nightAssignedIds),
+      day: materializeAssignedNames(state, dayAssignedIds),
+      nightIds: materializeAssignedIds(nightAssignedIds),
+      dayIds: materializeAssignedIds(dayAssignedIds),
     };
   });
 }
