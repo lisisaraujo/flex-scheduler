@@ -2,7 +2,7 @@ export type ShiftType = "night" | "day";
 export type MonthStatus = "draft" | "open" | "closed" | "scheduled" | "archived";
 
 export interface MonthDoc {
-  companyId: string;
+  teamId: string;
   monthId: string;
   orgName: string;
   timezone: string;
@@ -94,7 +94,7 @@ export interface ShiftSlotRef {
 
 export interface ShiftSwapRequest {
   swapId: string;
-  companyId: string;
+  teamId: string;
   monthId: string;
   status: SwapRequestStatus;
   requesterId: string;

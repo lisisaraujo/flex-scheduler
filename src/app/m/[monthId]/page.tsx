@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
-import { getCurrentUser } from "@/features/auth/server/session";
+import { getSession } from "@/features/auth/server/session";
+import { api } from "@/lib/backend";
 import { buildDemoMonthSnapshot } from "@/features/scheduler/server/demo";
-import { getMonthSnapshotForCompany } from "@/features/scheduler/server/repository";
 import { MemberScheduleView } from "@/features/scheduler/ui/MemberScheduleView";
 import { PublicMonthView } from "@/features/scheduler/ui/PublicMonthView";
+import { MonthSnapshot } from "@/features/scheduler/domain/types";
 
 export default async function PublicMonthPage({
   params,
@@ -14,26 +15,28 @@ export default async function PublicMonthPage({
 }) {
   const { monthId } = await params;
   const { demo } = await searchParams;
-  const currentUser = await getCurrentUser();
+  const session = await getSession();
+
+  if (!session) redirect("/login");
+
+  const { user } = session;
+  const isAdmin = user.role === "team_admin" || user.role === "org_admin";
 
   try {
-    if (!currentUser) {
-      redirect("/login");
-    }
+    const snapshot = await api.get<MonthSnapshot & { ok: boolean }>(`/api/v1/months/${monthId}`, session);
 
-    const snapshot = await getMonthSnapshotForCompany(currentUser.companyId, monthId);
-    if (currentUser.role !== "admin" && (snapshot.month.status === "draft" || snapshot.month.status === "archived")) {
+    if (!isAdmin && (snapshot.month.status === "draft" || snapshot.month.status === "archived")) {
       notFound();
     }
 
-    const showMemberScheduleView = currentUser.role !== "admin" && snapshot.month.status === "scheduled";
+    const showMemberView = !isAdmin && snapshot.month.status === "scheduled";
 
     return (
       <main className="mx-auto min-h-screen max-w-7xl px-6 py-12">
-        {showMemberScheduleView ? (
-          <MemberScheduleView snapshot={snapshot} currentUser={currentUser} />
+        {showMemberView ? (
+          <MemberScheduleView snapshot={snapshot} currentUser={user} />
         ) : (
-          <PublicMonthView snapshot={snapshot} currentUser={currentUser} />
+          <PublicMonthView snapshot={snapshot} currentUser={user} />
         )}
       </main>
     );
@@ -42,7 +45,7 @@ export default async function PublicMonthPage({
       const snapshot = buildDemoMonthSnapshot(monthId);
       return (
         <main className="mx-auto min-h-screen max-w-7xl px-6 py-12">
-          <PublicMonthView snapshot={snapshot} currentUser={currentUser} />
+          <PublicMonthView snapshot={snapshot} currentUser={user} />
         </main>
       );
     }

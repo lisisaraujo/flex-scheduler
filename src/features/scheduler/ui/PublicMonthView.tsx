@@ -79,9 +79,9 @@ export function PublicMonthView({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const isReadOnlyAdmin = currentUser?.role === "admin";
+  const isReadOnlyAdmin = currentUser?.role === "team_admin" || currentUser?.role === "org_admin";
   const initialEntries = useMemo(() => {
-    if (!currentUser || currentUser.role === "admin") return {} as Record<string, ShiftType>;
+    if (!currentUser || currentUser.role === "team_admin" || currentUser.role === "org_admin") return {} as Record<string, ShiftType>;
     const existing = snapshot.availabilities.find((availability) => availability.memberId === currentUser.userId);
     return Object.fromEntries(existing?.entries.map((entry) => [entry.date, entry.shiftType]) ?? []);
   }, [currentUser, snapshot.availabilities]);
@@ -277,7 +277,7 @@ export function PublicMonthView({
                   </h1>
                   <p className="mt-2 text-sm text-zinc-600">
                     {currentUser
-                      ? `${currentUser.name} · ${currentUser.email} · ${currentUser.companyName}`
+                      ? `${currentUser.name} · ${currentUser.email} · ${currentUser.teamName ?? currentUser.orgName}`
                       : `${name} · ${email || "No email"} · Demo mode`}
                   </p>
                 </div>

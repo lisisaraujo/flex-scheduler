@@ -1,24 +1,35 @@
 import Link from "next/link";
-import { getCurrentUser } from "@/features/auth/server/session";
-import { listInvitationsForCompany, listMembersForCompany } from "@/features/auth/server/repository";
+import { getSession } from "@/features/auth/server/session";
+import { api } from "@/lib/backend";
 import { CompanyAdminPanel } from "@/features/auth/ui/CompanyAdminPanel";
 import { UserCoworkerPreferencesPanel } from "@/features/auth/ui/UserCoworkerPreferencesPanel";
 import { CreateMonthForm } from "@/features/scheduler/ui/CreateMonthForm";
-import { isFirestoreConfigured } from "@/features/scheduler/server/db";
-import { listMonths } from "@/features/scheduler/server/repository";
+import { MonthDoc } from "@/features/scheduler/domain/types";
+import { TeamMember, Invitation } from "@/features/auth/domain/types";
 
 export default async function HomePage() {
-  const user = await getCurrentUser();
-  const configured = isFirestoreConfigured();
-  const allMonths = configured && user ? await listMonths(user.companyId).catch(() => []) : [];
-  const months =
-    user?.role === "admin"
-      ? allMonths
-      : allMonths.filter((month) => month.status !== "draft" && month.status !== "archived");
-  const invitations =
-    configured && user?.role === "admin" ? await listInvitationsForCompany(user.companyId).catch(() => []) : [];
-  const members = configured && user ? await listMembersForCompany(user.companyId).catch(() => []) : [];
-  const currentMember = user ? members.find((member) => member.userId === user.userId) ?? null : null;
+  const session = await getSession();
+  const user = session?.user ?? null;
+
+  const isAdmin = user?.role === "team_admin" || user?.role === "org_admin";
+
+  const [allMonths, invitations, members] = await Promise.all([
+    session
+      ? api.get<{ months: MonthDoc[] }>("/api/v1/months", session).then((d) => d.months).catch(() => [])
+      : Promise.resolve([] as MonthDoc[]),
+    session && isAdmin
+      ? api.get<{ invitations: Invitation[] }>("/api/v1/invitations", session).then((d) => d.invitations).catch(() => [])
+      : Promise.resolve([] as Invitation[]),
+    session
+      ? api.get<{ members: TeamMember[] }>("/api/v1/members", session).then((d) => d.members).catch(() => [])
+      : Promise.resolve([] as TeamMember[]),
+  ]);
+
+  const months = isAdmin
+    ? allMonths
+    : allMonths.filter((m) => m.status !== "draft" && m.status !== "archived");
+
+  const currentMember = user ? (members.find((m) => m.userId === user.userId) ?? null) : null;
   const currentMonthId = new Date().toISOString().slice(0, 7);
 
   return (
@@ -26,29 +37,27 @@ export default async function HomePage() {
       <section className="grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-6">
           <div className="space-y-4">
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">Scheduler MVP</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">Flex Scheduler</p>
             <h1 className="max-w-xl text-5xl font-semibold tracking-tight text-zinc-950">
-              Restructured around month intake, admin scheduling, and a simpler path to the real product.
+              Month-based shift scheduling for your team.
             </h1>
             <p className="max-w-xl text-lg text-zinc-600">
-              This version keeps the MVP honest: one month at a time, explicit shift-level availability, public day
-              visibility, admin controls, and a generated schedule table.
+              Submit availability, generate schedules, and manage shift swaps — all in one place.
             </p>
             <p className="max-w-xl text-sm text-zinc-700">
               {user
-                ? `Signed in as ${user.name} (${user.email}) in ${user.companyName}.`
-                : "No account session yet. Create a company first, then log into it."}
+                ? `Signed in as ${user.name} (${user.email})${user.teamName ? ` · ${user.teamName}` : ` · ${user.orgName}`}.`
+                : "Sign in to access your team schedule."}
             </p>
           </div>
 
           <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-zinc-950">Current MVP scope</h2>
+            <h2 className="text-xl font-semibold text-zinc-950">Quick actions</h2>
             <ul className="grid gap-2 text-sm text-zinc-700">
-              <li>Public month page for availability intake</li>
-              <li>Visible names already available on each shift</li>
-              <li>Per-shift cap managed by admin</li>
-              <li>Manual schedule generation with a simple rule set</li>
-              <li>Schedule table ready for later PDF/email work</li>
+              <li>Submit your monthly shift availability</li>
+              <li>See who is already on each shift</li>
+              <li>Request shift swaps with colleagues</li>
+              {isAdmin && <li>Generate and edit the schedule</li>}
             </ul>
             <div className="pt-2">
               <Link
@@ -59,26 +68,20 @@ export default async function HomePage() {
               </Link>
             </div>
           </div>
-
-          {!configured ? (
-            <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">
-              Firestore is not configured yet. Use the demo month above to test the calendar UI, or add
-              `FIREBASE_SERVICE_ACCOUNT` to create real months.
-            </div>
-          ) : null}
         </div>
 
-        {user?.role === "admin" ? (
+        {isAdmin && user ? (
           <div className="grid gap-6">
-            <CreateMonthForm defaultOrgName={user.companyName} />
+            <CreateMonthForm defaultOrgName={user.teamName ?? user.orgName} />
             <CompanyAdminPanel invitations={invitations} members={members} currentUserId={user.userId} />
           </div>
         ) : user ? (
           <div className="grid gap-4">
             <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold text-zinc-950">Company member view</h2>
+              <h2 className="text-xl font-semibold text-zinc-950">Team member view</h2>
               <p className="text-sm text-zinc-600">
-                You are signed in as a user. Published months for {user.companyName} will appear below once an admin creates them.
+                You are signed in as a team member of {user.teamName ?? user.orgName}. Published months will appear
+                below once an admin creates them.
               </p>
             </div>
             <UserCoworkerPreferencesPanel
@@ -90,15 +93,12 @@ export default async function HomePage() {
           </div>
         ) : (
           <div className="grid gap-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-zinc-950">Create a company first</h2>
+            <h2 className="text-xl font-semibold text-zinc-950">Welcome to Flex Scheduler</h2>
             <p className="text-sm text-zinc-600">
-              The app now uses company-scoped accounts. Register your company to create the first admin account.
+              You need an invitation to join a team. If you already have an account, log in below.
             </p>
             <div className="flex gap-3">
-              <Link href="/register" className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white">
-                Create company
-              </Link>
-              <Link href="/login" className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900">
+              <Link href="/login" className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white">
                 Log in
               </Link>
             </div>
@@ -109,8 +109,8 @@ export default async function HomePage() {
       <section className="mt-12 space-y-4">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold text-zinc-950">Existing months</h2>
-            <p className="mt-1 text-sm text-zinc-600">Open the public intake or admin control view for any month.</p>
+            <h2 className="text-2xl font-semibold text-zinc-950">Months</h2>
+            <p className="mt-1 text-sm text-zinc-600">Open the availability view or admin control for any month.</p>
           </div>
         </div>
 
@@ -140,7 +140,7 @@ export default async function HomePage() {
                   >
                     Open month
                   </Link>
-                  {user?.role === "admin" ? (
+                  {isAdmin ? (
                     <Link
                       href={`/admin/${month.monthId}`}
                       className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900"
@@ -153,7 +153,7 @@ export default async function HomePage() {
             ))
           ) : (
             <div className="rounded-3xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
-              No months yet. Create the first month using the form above.
+              No months yet.{isAdmin ? " Create the first month using the form above." : ""}
             </div>
           )}
         </div>

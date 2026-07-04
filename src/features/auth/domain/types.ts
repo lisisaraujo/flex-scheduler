@@ -1,15 +1,9 @@
-export type MembershipRole = "user" | "admin";
+export type MembershipRole = "org_admin" | "team_admin" | "team_member";
 
 export interface SchedulingProfile {
   active: boolean;
   maxShifts: number | null;
   preferredCoworkerIds: string[];
-}
-
-export interface Company {
-  companyId: string;
-  name: string;
-  createdAt: number;
 }
 
 export interface AuthUser {
@@ -19,28 +13,30 @@ export interface AuthUser {
   createdAt: number;
 }
 
-export interface Membership {
-  membershipId: string;
-  userId: string;
-  companyId: string;
-  role: MembershipRole;
-  createdAt: number;
-  schedulingProfile: SchedulingProfile;
-}
-
 export interface SessionUser {
   userId: string;
   name: string;
   email: string;
-  companyId: string;
-  companyName: string;
+  orgId: string;
+  orgName: string;
+  teamId: string | null;    // null = org-level context (no team selected)
+  teamName: string | null;
+  role: MembershipRole;
+}
+
+export interface UserContext {
+  type: "org" | "team";
+  orgId: string;
+  orgName: string;
+  teamId?: string | null;
+  teamName?: string | null;
   role: MembershipRole;
 }
 
 export interface Invitation {
   invitationId: string;
-  companyId: string;
-  companyName: string;
+  teamId: string;
+  teamName: string;
   email: string;
   role: MembershipRole;
   status: "pending" | "accepted" | "expired" | "revoked";
@@ -49,13 +45,16 @@ export interface Invitation {
   expiresAt: number;
 }
 
-export interface CompanyMember {
+export interface TeamMember {
   membershipId: string;
   userId: string;
-  companyId: string;
+  teamId: string;
   role: MembershipRole;
   createdAt: number;
   name: string;
   email: string;
   schedulingProfile: SchedulingProfile;
 }
+
+/** @deprecated use TeamMember */
+export type CompanyMember = TeamMember;

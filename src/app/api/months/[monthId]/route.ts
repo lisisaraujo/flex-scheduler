@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
-import { requireRole } from "@/features/auth/server/session";
-import { deleteMonthForCompany } from "@/features/scheduler/server/repository";
+import { requireIdToken } from "@/features/auth/server/session";
+import { api, ApiError } from "@/lib/backend";
 
-export async function DELETE(_request: Request, context: { params: Promise<{ monthId: string }> }) {
+function handleError(err: unknown) {
+  if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.status });
+  const msg = err instanceof Error ? err.message : "Server error";
+  const status = msg === "Authentication required" ? 401 : msg === "Forbidden" ? 403 : 500;
+  return NextResponse.json({ error: msg }, { status });
+}
+
+export async function DELETE(
+  _: Request,
+  context: { params: Promise<{ monthId: string }> },
+) {
   try {
-    const user = await requireRole("admin");
+    const session = await requireIdToken();
     const { monthId } = await context.params;
-    await deleteMonthForCompany(user.companyId, monthId);
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to delete month";
-    const status = message === "Forbidden" ? 403 : 400;
-    return NextResponse.json({ error: message }, { status });
+    const data = await api.del(`/api/v1/months/${monthId}`, session);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
   }
 }

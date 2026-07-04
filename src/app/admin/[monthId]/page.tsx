@@ -1,28 +1,30 @@
 import { notFound, redirect } from "next/navigation";
-import { listMembersForCompany } from "@/features/auth/server/repository";
-import { getCurrentUser } from "@/features/auth/server/session";
-import { getMonthSnapshotForCompany } from "@/features/scheduler/server/repository";
+import { getSession } from "@/features/auth/server/session";
+import { api } from "@/lib/backend";
 import { AdminMonthView } from "@/features/scheduler/ui/AdminMonthView";
+import { MonthSnapshot } from "@/features/scheduler/domain/types";
+import { TeamMember } from "@/features/auth/domain/types";
 
 export default async function AdminMonthPage({ params }: { params: Promise<{ monthId: string }> }) {
   const { monthId } = await params;
-  const currentUser = await getCurrentUser();
+  const session = await getSession();
 
-  if (!currentUser) {
-    redirect("/login");
-  }
+  if (!session) redirect("/login");
 
-  if (currentUser.role !== "admin") {
-    redirect("/");
-  }
+  const { user } = session;
+  const isAdmin = user.role === "team_admin" || user.role === "org_admin";
+  if (!isAdmin) redirect("/");
 
   try {
-    const snapshot = await getMonthSnapshotForCompany(currentUser.companyId, monthId);
-    const members = await listMembersForCompany(currentUser.companyId).catch(() => []);
+    const [snapshot, membersData] = await Promise.all([
+      api.get<MonthSnapshot & { ok: boolean }>(`/api/v1/months/${monthId}`, session),
+      api.get<{ ok: boolean; members: TeamMember[] }>("/api/v1/members", session).catch(() => ({ ok: true, members: [] as TeamMember[] })),
+    ]);
+
     return (
       <main className="relative mx-auto min-h-screen max-w-7xl px-6 py-12">
         <div className="pointer-events-none absolute inset-x-6 top-4 h-56 rounded-[3rem] bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.72),rgba(255,255,255,0))]" />
-        <AdminMonthView snapshot={snapshot} members={members} />
+        <AdminMonthView snapshot={snapshot} members={membersData.members} />
       </main>
     );
   } catch {

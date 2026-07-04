@@ -1,32 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { requireRole } from "@/features/auth/server/session";
-import { updateMonthSettings } from "@/features/scheduler/server/repository";
+import { requireIdToken } from "@/features/auth/server/session";
+import { api, ApiError } from "@/lib/backend";
 
-const bodySchema = z.object({
-  deadlineAt: z.number().int().positive(),
-  intakeLimitPerShift: z.number().int().min(1).max(20),
-  status: z.enum(["draft", "open", "closed", "scheduled", "archived"]),
-});
+function handleError(err: unknown) {
+  if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.status });
+  const msg = err instanceof Error ? err.message : "Server error";
+  const status = msg === "Authentication required" ? 401 : msg === "Forbidden" ? 403 : 500;
+  return NextResponse.json({ error: msg }, { status });
+}
 
-export async function PATCH(request: NextRequest, context: { params: Promise<{ monthId: string }> }) {
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ monthId: string }> },
+) {
   try {
-    const user = await requireRole("admin");
+    const session = await requireIdToken();
     const { monthId } = await context.params;
-    const parsed = bodySchema.parse(await request.json());
-    await updateMonthSettings({
-      companyId: user.companyId,
-      monthId,
-      deadlineAt: parsed.deadlineAt,
-      intakeLimitPerShift: parsed.intakeLimitPerShift,
-      status: parsed.status,
-    });
-
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update month" },
-      { status: 400 },
-    );
+    const body = await request.json();
+    const data = await api.patch(`/api/v1/months/${monthId}/settings`, session, body);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
   }
 }

@@ -1,43 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { requireCurrentUser } from "@/features/auth/server/session";
-import { updateAvailability } from "@/features/scheduler/server/repository";
+import { requireIdToken } from "@/features/auth/server/session";
+import { api, ApiError } from "@/lib/backend";
 
-const bodySchema = z.object({
-  entries: z
-    .array(
-      z.object({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        shiftType: z.enum(["night", "day"]),
-      }),
-    )
-    .max(31),
-});
+function handleError(err: unknown) {
+  if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.status });
+  const msg = err instanceof Error ? err.message : "Server error";
+  const status = msg === "Authentication required" ? 401 : msg === "Forbidden" ? 403 : 500;
+  return NextResponse.json({ error: msg }, { status });
+}
 
-export async function POST(request: NextRequest, context: { params: Promise<{ monthId: string }> }) {
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ monthId: string }> },
+) {
   try {
-    const user = await requireCurrentUser();
-    if (user.role === "admin") {
-      return NextResponse.json(
-        { error: "Admins can view the calendar but cannot submit availability." },
-        { status: 403 },
-      );
-    }
-
+    const session = await requireIdToken();
     const { monthId } = await context.params;
-    const parsed = bodySchema.parse(await request.json());
-    const memberId = await updateAvailability({
-      companyId: user.companyId,
-      currentUser: user,
-      monthId,
-      entries: parsed.entries,
-    });
-
-    return NextResponse.json({ ok: true, memberId });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to save availability" },
-      { status: 400 },
-    );
+    const body = await request.json();
+    const data = await api.post(`/api/v1/months/${monthId}/availability`, session, body);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
   }
 }

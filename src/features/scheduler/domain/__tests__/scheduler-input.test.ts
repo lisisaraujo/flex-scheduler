@@ -7,10 +7,10 @@ function companyMember(member: ReturnType<typeof createMember>): CompanyMember {
   return {
     membershipId: `${member.memberId}-membership`,
     userId: member.memberId,
-    companyId: "company-1",
+    teamId: "team-1",
     name: member.name,
     email: member.email ?? `${member.memberId}@example.test`,
-    role: "user",
+    role: "team_member",
     createdAt: 1,
     schedulingProfile: {
       active: member.active,

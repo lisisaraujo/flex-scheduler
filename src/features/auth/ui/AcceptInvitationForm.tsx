@@ -6,12 +6,12 @@ import { FormEvent, useState, useTransition } from "react";
 export function AcceptInvitationForm({
   invitationId,
   email,
-  companyName,
+  teamName,
   role,
 }: {
   invitationId: string;
   email: string;
-  companyName: string;
+  teamName: string;
   role: string;
 }) {
   const router = useRouter();
@@ -46,7 +46,7 @@ export function AcceptInvitationForm({
     <div className="mx-auto w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
       <div className="mb-6">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-amber-700">Invitation</p>
-        <h1 className="mt-3 text-3xl font-semibold text-zinc-950">Join {companyName}</h1>
+        <h1 className="mt-3 text-3xl font-semibold text-zinc-950">Join {teamName}</h1>
         <p className="mt-2 text-sm text-zinc-600">
           This invite is for <span className="font-medium text-zinc-900">{email}</span> as a {role}.
         </p>

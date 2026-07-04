@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { createInvitation } from "@/features/auth/server/repository";
-import { sendInvitationEmail } from "@/features/auth/server/mailer";
-import { requireRole } from "@/features/auth/server/session";
+import { requireIdToken } from "@/features/auth/server/session";
+import { api, ApiError } from "@/lib/backend";
 
-const bodySchema = z.object({
-  email: z.string().email(),
-  role: z.enum(["user", "admin"]).default("user"),
-});
+function handleError(err: unknown) {
+  if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.status });
+  const msg = err instanceof Error ? err.message : "Server error";
+  const status = msg === "Authentication required" ? 401 : msg === "Forbidden" ? 403 : 500;
+  return NextResponse.json({ error: msg }, { status });
+}
+
+export async function GET() {
+  try {
+    const session = await requireIdToken();
+    const data = await api.get("/api/v1/invitations", session);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const currentUser = await requireRole("admin");
-    const parsed = bodySchema.parse(await request.json());
-    const invitation = await createInvitation({
-      companyId: currentUser.companyId,
-      companyName: currentUser.companyName,
-      invitedByUserId: currentUser.userId,
-      email: parsed.email,
-      role: parsed.role,
-    });
-    await sendInvitationEmail(invitation);
-
-    return NextResponse.json({ ok: true, invitation, delivered: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create invitation";
-    const status = message === "Forbidden" ? 403 : message === "Authentication required" ? 401 : 400;
-    return NextResponse.json({ error: message }, { status });
+    const session = await requireIdToken();
+    const body = await request.json();
+    const data = await api.post("/api/v1/invitations", session, body);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
   }
 }

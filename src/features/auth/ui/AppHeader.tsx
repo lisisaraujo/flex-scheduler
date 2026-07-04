@@ -17,7 +17,7 @@ export function AppHeader({ user }: { user: SessionUser | null }) {
           {user ? (
             <>
               <span className="rounded-full bg-amber-50 px-3 py-1 text-sm text-amber-800">
-                {user.companyName} · {user.name} · {user.role}
+                {user.teamName ?? user.orgName} · {user.name} · {user.role.replace("_", " ")}
               </span>
               <LogoutButton />
             </>

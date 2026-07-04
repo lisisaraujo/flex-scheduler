@@ -1,26 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import { requireRole } from "@/features/auth/server/session";
-import { createMonth } from "@/features/scheduler/server/repository";
+import { requireIdToken } from "@/features/auth/server/session";
+import { api, ApiError } from "@/lib/backend";
 
-const bodySchema = z.object({
-  monthId: z.string(),
-  orgName: z.string().min(2).max(100),
-  timezone: z.string().min(2).max(100),
-  deadlineAt: z.number().int().positive(),
-  intakeLimitPerShift: z.number().int().min(1).max(20),
-});
+function handleError(err: unknown) {
+  if (err instanceof ApiError) return NextResponse.json({ error: err.message }, { status: err.status });
+  const msg = err instanceof Error ? err.message : "Server error";
+  const status = msg === "Authentication required" ? 401 : msg === "Forbidden" ? 403 : 500;
+  return NextResponse.json({ error: msg }, { status });
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await requireRole("admin");
-    const parsed = bodySchema.parse(await request.json());
-    const month = await createMonth({ ...parsed, companyId: user.companyId });
-    return NextResponse.json({ ok: true, month });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to create month" },
-      { status: error instanceof Error && error.message === "Forbidden" ? 403 : 400 },
-    );
+    const session = await requireIdToken();
+    const body = await request.json();
+    const data = await api.post("/api/v1/months", session, body);
+    return NextResponse.json(data);
+  } catch (err) {
+    return handleError(err);
   }
 }

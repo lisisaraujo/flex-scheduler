@@ -5,7 +5,7 @@ export function buildDemoMonthSnapshot(monthId: string): MonthSnapshot {
   const now = Date.now();
   const deadlineAt = new Date(`${monthId}-20T18:00:00`).getTime();
   const month = {
-    companyId: "demo-company",
+    teamId: "demo-company",
     monthId,
     orgName: "Flex Scheduler Demo",
     timezone: "Europe/Berlin",

@@ -26,7 +26,7 @@ export function CompanyAdminPanel({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"user" | "admin">("user");
+  const [role, setRole] = useState<"team_member" | "team_admin">("team_member");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [memberSettings, setMemberSettings] = useState<Record<string, SchedulingFormState>>(() =>
@@ -80,7 +80,7 @@ export function CompanyAdminPanel({
     }
 
     setEmail("");
-    setRole("user");
+    setRole("team_member");
     setSuccess(`Invitation email sent to ${payload.invitation.email}.`);
     startTransition(() => router.refresh());
   }
@@ -192,11 +192,11 @@ export function CompanyAdminPanel({
             <span>Role</span>
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value as "user" | "admin")}
+              onChange={(event) => setRole(event.target.value as "team_member" | "team_admin")}
               className="rounded-2xl border border-zinc-300 px-4 py-3 outline-none focus:border-zinc-900"
             >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
+              <option value="team_member">Team Member</option>
+              <option value="team_admin">Team Admin</option>
             </select>
           </label>
 
